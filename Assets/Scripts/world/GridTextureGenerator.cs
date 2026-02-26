@@ -32,7 +32,7 @@ public class GridTextureGenerator : MonoBehaviour
 
         // Hacemos que la textura se repita (tile) en el terreno
         // Sin esto, la textura se estiraría en todo el chunk
-        terrainMaterial.mainTextureScale = new Vector2(8, 8);
+        terrainMaterial.mainTextureScale = new Vector2(1, 1);
     }
 
     /// <summary>
