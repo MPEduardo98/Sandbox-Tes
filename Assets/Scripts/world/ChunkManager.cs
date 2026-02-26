@@ -69,7 +69,7 @@ public class ChunkManager : MonoBehaviour
         }
     }
 
-    private void SpawnChunk(Vector2Int gridPos)
+        private void SpawnChunk(Vector2Int gridPos)
     {
         Vector3 worldPos = new Vector3(gridPos.x * chunkSize, 0, gridPos.y * chunkSize);
 
@@ -77,10 +77,12 @@ public class ChunkManager : MonoBehaviour
         chunkGO.transform.position = worldPos;
         chunkGO.transform.parent   = this.transform;
 
+        // Asignamos la layer Ground automáticamente a cada chunk
+        chunkGO.layer = LayerMask.NameToLayer("Ground");
+
         TerrainChunk chunk = chunkGO.AddComponent<TerrainChunk>();
         chunk.Initialize(gridPos, chunkSize, terrainMaterial);
 
-        // Si hay un TreeGenerator, le pedimos que pueble este chunk
         if (treeGenerator != null)
             treeGenerator.GenerateTrees(chunk.Data, chunkGO.transform);
 
@@ -101,4 +103,6 @@ public class ChunkManager : MonoBehaviour
             return chunk.Data.GetCellFromWorldPosition(worldPos);
         return null;
     }
+
+
 }

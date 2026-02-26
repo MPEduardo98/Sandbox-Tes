@@ -1,74 +1,114 @@
 using UnityEngine;
-using UnityEngine.InputSystem; // Nuevo Input System de Unity
+using UnityEngine.InputSystem;
 
 /// <summary>
-/// Mueve al jugador con WASD usando el nuevo Input System.
-/// Este script va en el GameObject "Player" que tiene un Rigidbody.
+/// Movimiento suave del jugador relativo a la cámara isométrica.
 /// </summary>
 public class PlayerMovement : MonoBehaviour
 {
-    // ─── Configuración desde el Inspector ────────────────────────────────────
-
     [Header("Movimiento")]
-    [Tooltip("Qué tan rápido se mueve el jugador")]
-    [SerializeField] private float moveSpeed = 8f;
+    [Tooltip("Velocidad máxima del jugador")]
+    [SerializeField] private float moveSpeed = 6f;
 
-    [Tooltip("Qué tan rápido frena el jugador al soltar las teclas")]
-    [SerializeField] private float drag = 8f;
+    [Tooltip("Qué tan rápido acelera (más alto = más responsivo)")]
+    [SerializeField] private float acceleration = 12f;
 
-    // ─── Referencias internas ─────────────────────────────────────────────────
+    [Tooltip("Qué tan rápido frena al soltar las teclas")]
+    [SerializeField] private float deceleration = 10f;
+
+    [Header("Salto")]
+    [SerializeField] private float jumpForce = 6f;
+    [SerializeField] private float groundCheckDistance = 0.2f;
+    [SerializeField] private LayerMask groundLayer;
+
+    [Header("Cámara")]
+    [Tooltip("Arrastra aquí el Transform de la Main Camera")]
+    [SerializeField] private Transform cameraTransform;
+
+    // ─── Variables internas ───────────────────────────────────────────────────
 
     private Rigidbody rb;
-    private Vector2 inputDirection; // Lo que el jugador está presionando (X y Z)
-
-    // ─── Unity Messages ───────────────────────────────────────────────────────
+    private Vector2 inputDirection;
+    private bool isGrounded;
 
     void Awake()
     {
-        // Obtenemos el Rigidbody una sola vez aquí (nunca en Update)
         rb = GetComponent<Rigidbody>();
-        rb.linearDamping = drag; // Le decimos al Rigidbody cuánto frena solo
+        rb.linearDamping = 0f; // El drag lo manejamos nosotros manualmente
     }
 
-    /// <summary>
-    /// El nuevo Input System llama a este método automáticamente cuando
-    /// el jugador presiona o suelta las teclas WASD o las flechas.
-    /// El nombre DEBE ser "OnMove" para que el sistema lo encuentre.
-    /// </summary>
-    public void OnMove(InputValue value)
+    void Update()
     {
-        // value.Get<Vector2>() nos da un vector como (1,0) para derecha, (-1,0) para izquierda, etc.
-        inputDirection = value.Get<Vector2>();
+        CheckGrounded();
     }
 
     void FixedUpdate()
     {
-        // FixedUpdate se usa para física — corre a 50 veces por segundo de forma constante
         MovePlayer();
     }
 
-    // ─── Lógica de movimiento ─────────────────────────────────────────────────
+    public void OnMove(InputValue value)
+    {
+        inputDirection = value.Get<Vector2>();
+    }
 
-    /// <summary>
-    /// Aplica fuerza al Rigidbody en la dirección que el jugador está presionando.
-    /// Usamos el plano XZ porque Y es arriba/abajo (la gravedad lo maneja Unity).
-    /// </summary>
+    public void OnJump(InputValue value)
+    {
+        if (isGrounded)
+        {
+            rb.linearVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
+            rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+        }
+    }
+
     private void MovePlayer()
     {
-        // Convertimos el input 2D (X, Y del joystick/teclado) al plano 3D (X, Z del mundo)
-        // inputDirection.x = izquierda/derecha → mueve en X
-        // inputDirection.y = arriba/abajo del teclado → mueve en Z (profundidad)
-        Vector3 moveDirection = new Vector3(inputDirection.x, 0f, inputDirection.y);
+        // ── Dirección relativa a la cámara ────────────────────────────────────
+        // Tomamos los ejes de la cámara pero los aplanamos en Y=0
+        // para que el movimiento sea siempre horizontal sin importar el ángulo
+        Vector3 camForward = cameraTransform.forward;
+        Vector3 camRight   = cameraTransform.right;
 
-        // AddForce empuja al Rigidbody. El drag que pusimos antes frena automáticamente.
-        rb.AddForce(moveDirection.normalized * moveSpeed, ForceMode.VelocityChange);
+        camForward.y = 0f;
+        camRight.y   = 0f;
 
-        // Limitamos la velocidad máxima para que no acelere infinitamente
-        Vector3 horizontalVelocity = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
-        if (horizontalVelocity.magnitude > moveSpeed)
+        camForward.Normalize();
+        camRight.Normalize();
+
+        // Combinamos input con los ejes de la cámara
+        Vector3 desiredDirection = (camForward * inputDirection.y + camRight * inputDirection.x);
+        Vector3 desiredVelocity  = desiredDirection * moveSpeed;
+
+        // ── Aceleración / Deceleración suave ─────────────────────────────────
+        Vector3 currentHorizontal = new Vector3(rb.linearVelocity.x, 0f, rb.linearVelocity.z);
+
+        float lerpSpeed;
+
+        if (inputDirection.magnitude > 0.1f)
         {
-            Vector3 clamped = horizontalVelocity.normalized * moveSpeed;
-            rb.linearVelocity = new Vector3(clamped.x, rb.linearVelocity.y, clamped.z);
+            // El jugador está presionando una tecla → acelerar
+            lerpSpeed = acceleration * Time.fixedDeltaTime;
         }
+        else
+        {
+            // No hay input → frenar suavemente
+            lerpSpeed = deceleration * Time.fixedDeltaTime;
+            desiredVelocity = Vector3.zero;
+        }
+
+        Vector3 newHorizontal = Vector3.Lerp(currentHorizontal, desiredVelocity, lerpSpeed);
+
+        // Aplicamos la velocidad manteniendo la Y (gravedad y salto intactos)
+        rb.linearVelocity = new Vector3(newHorizontal.x, rb.linearVelocity.y, newHorizontal.z);
+    }
+
+    private void CheckGrounded()
+    {
+        isGrounded = Physics.Raycast(
+            transform.position,
+            Vector3.down,
+            1f + groundCheckDistance,
+            groundLayer
+        );
     }
 }

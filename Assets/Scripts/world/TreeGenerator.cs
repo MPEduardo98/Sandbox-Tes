@@ -1,41 +1,28 @@
 using UnityEngine;
+using System.Collections.Generic;
 
-/// <summary>
-/// Genera árboles en cada chunk usando Perlin Noise.
-/// Los árboles aparecen en grupos naturales, respetan el grid de celdas
-/// y quedan registrados en CellData para que otros sistemas sepan que la celda está ocupada.
-/// Este script va en el GameObject ChunkManager.
-/// </summary>
 public class TreeGenerator : MonoBehaviour
 {
     [Header("Prefab")]
-    [Tooltip("Arrastra aquí el prefab de tu árbol 3D")]
     [SerializeField] private GameObject treePrefab;
 
     [Header("Distribución con Perlin Noise")]
-    [Tooltip("Escala del ruido. Valor bajo = bosques grandes. Valor alto = bosques pequeños y dispersos")]
-    [SerializeField] private float noiseScale = 0.08f;
-
-    [Tooltip("A partir de qué valor del ruido aparece un árbol (0 a 1). Más alto = menos árboles")]
-    [SerializeField] private float treeThreshold = 0.6f;
-
-    [Tooltip("Semilla del mundo. Cambia este número para generar mundos diferentes")]
+    [SerializeField] private float noiseScale = 0.05f;
+    [Tooltip("Más alto = menos árboles")]
+    [SerializeField] private float treeThreshold = 0.68f;
     [SerializeField] private float worldSeed = 42f;
 
-    [Header("Variación visual")]
-    [Tooltip("Variación aleatoria en la escala del árbol")]
-    [SerializeField] private float scaleVariation = 0.3f;
+    [Header("Separación")]
+    [Tooltip("Distancia mínima en unidades entre árboles. Ajusta según el tamaño visual de tu árbol")]
+    [SerializeField] private float minDistanceBetweenTrees = 4f;
 
-    [Tooltip("Escala base del árbol (ajusta según tu modelo)")]
+    [Header("Variación visual")]
+    [SerializeField] private float scaleVariation = 0.2f;
     [SerializeField] private float baseScale = 1f;
 
-    // ─── Método público que llama el ChunkManager ─────────────────────────────
+    // Guardamos las posiciones donde ya pusimos árboles en este chunk
+    private List<Vector3> placedPositions = new List<Vector3>();
 
-    /// <summary>
-    /// Genera los árboles de un chunk. Se llama una vez cuando el chunk aparece.
-    /// </summary>
-    /// <param name="chunkData">Los datos del chunk donde generar árboles</param>
-    /// <param name="chunkParent">El GameObject del chunk (los árboles serán sus hijos)</param>
     public void GenerateTrees(ChunkData chunkData, Transform chunkParent)
     {
         if (treePrefab == null)
@@ -43,6 +30,9 @@ public class TreeGenerator : MonoBehaviour
             Debug.LogWarning("TreeGenerator: No hay prefab de árbol asignado.");
             return;
         }
+
+        // Limpiamos la lista para cada chunk nuevo
+        placedPositions.Clear();
 
         int chunkSize = chunkData.cells.GetLength(0);
 
@@ -52,48 +42,65 @@ public class TreeGenerator : MonoBehaviour
             {
                 CellData cell = chunkData.cells[x, z];
 
-                // Solo ponemos árboles en celdas vacías de tipo Grass
                 if (!cell.IsEmpty || cell.terrainType != CellData.TerrainType.Grass)
                     continue;
 
-                // Calculamos el valor de Perlin Noise para esta celda
-                // Sumamos worldSeed para que cada mundo se vea diferente
+                // 1. Verificar el ruido
                 float noiseValue = Mathf.PerlinNoise(
                     (cell.gridPosition.x + worldSeed) * noiseScale,
                     (cell.gridPosition.y + worldSeed) * noiseScale
                 );
 
-                // Si el ruido supera el umbral, colocamos un árbol aquí
-                if (noiseValue >= treeThreshold)
-                {
-                    PlaceTree(cell, chunkParent);
-                }
+                if (noiseValue < treeThreshold) continue;
+
+                // 2. Verificar que no haya otro árbol demasiado cerca
+                Vector3 candidatePos = cell.worldPosition + new Vector3(0.5f, 0f, 0.5f);
+
+                if (IsTooCloseToOtherTree(candidatePos)) continue;
+
+                // 3. Poner el árbol
+                PlaceTree(cell, candidatePos, chunkParent);
             }
         }
     }
 
-    // ─── Lógica interna ───────────────────────────────────────────────────────
-
     /// <summary>
-    /// Instancia un árbol en la celda indicada y lo registra como ocupante.
+    /// Revisa si la posición candidata está demasiado cerca de un árbol ya colocado.
     /// </summary>
+    private bool IsTooCloseToOtherTree(Vector3 candidatePos)
+    {
+        foreach (Vector3 placed in placedPositions)
+        {
+            // Usamos distancia en el plano XZ (ignoramos Y)
+            float dist = Vector2.Distance(
+                new Vector2(candidatePos.x, candidatePos.z),
+                new Vector2(placed.x, placed.z)
+            );
+
+            if (dist < minDistanceBetweenTrees)
+                return true;
+        }
+        return false;
+    }
+
     private void PlaceTree(CellData cell, Transform parent)
     {
-        // Centramos el árbol en la celda (la celda empieza en worldPosition,
-        // sumamos 0.5 en X y Z para centrarlo en el cuadrado de 1x1)
-        Vector3 spawnPos = cell.worldPosition + new Vector3(0.5f, 0f, 0.5f);
+        float offsetX = Random.Range(-0.3f, 0.3f);
+        float offsetZ = Random.Range(-0.3f, 0.3f);
 
-        GameObject tree = Instantiate(treePrefab, spawnPos, Quaternion.identity, parent);
+        Vector3 spawnPos = cell.worldPosition + new Vector3(0.5f + offsetX, 0f, 0.5f + offsetZ);
 
-        // Rotación aleatoria en Y para que no todos miren igual
-        tree.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-
-        // Escala aleatoria para variedad visual
+        GameObject treeGO = Instantiate(treePrefab, spawnPos, Quaternion.identity, parent);
+        treeGO.transform.rotation = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+        treeGO.layer = LayerMask.NameToLayer("Tree");
+        
         float scale = baseScale + Random.Range(-scaleVariation, scaleVariation);
-        tree.transform.localScale = Vector3.one * scale;
+        treeGO.transform.localScale = Vector3.one * scale;
 
-        // Registramos el árbol en la celda para que el sistema de construcción
-        // y recursos sepan que esta celda está ocupada
-        cell.occupant = tree;
+        // Agregamos el componente Tree y le decimos qué celda ocupa
+        Tree tree = treeGO.AddComponent<Tree>();
+        tree.SetCell(cell);
+
+        cell.occupant = treeGO;
     }
 }
