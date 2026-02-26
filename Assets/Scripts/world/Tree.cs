@@ -1,66 +1,100 @@
 using UnityEngine;
 
 /// <summary>
-/// Componente que va en cada árbol del mundo.
-/// Gestiona su vida y su destrucción.
+/// Gestiona la vida, destrucción y efectos visuales del árbol.
 /// </summary>
 public class Tree : MonoBehaviour
 {
     [Header("Vida")]
-    [Tooltip("Golpes necesarios para destruir el árbol")]
     [SerializeField] private int maxHealth = 3;
 
-    private int currentHealth;
+    [Header("Efecto Hover")]
+    [Tooltip("Material que se aplica cuando el mouse está encima")]
+    [SerializeField] private Material hoverMaterial;
 
-    // La celda del grid que ocupa este árbol
-    // La necesitamos para liberarla cuando el árbol muera
+    private int currentHealth;
     private CellData occupiedCell;
+
+    // Guardamos los materiales originales de cada Renderer del árbol
+    // Un árbol puede tener varios (tronco, copa, ramas...)
+    private Renderer[] renderers;
+    private Material[][] originalMaterials;
 
     void Awake()
     {
         currentHealth = maxHealth;
+
+        // Obtenemos todos los Renderers del árbol y sus hijos
+        // (tronco y copa pueden ser objetos separados dentro del prefab)
+        renderers = GetComponentsInChildren<Renderer>();
+
+        // Guardamos una copia de los materiales originales de cada Renderer
+        originalMaterials = new Material[renderers.Length][];
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            originalMaterials[i] = renderers[i].materials;
+        }
     }
 
-    /// <summary>
-    /// Llamado por TreeGenerator al crear el árbol para registrar qué celda ocupa.
-    /// </summary>
     public void SetCell(CellData cell)
     {
         occupiedCell = cell;
     }
 
+    public void SetHoverMaterial(Material mat)
+    {
+        hoverMaterial = mat;
+    }
+
+    // ─── Hover ───────────────────────────────────────────────────────────────
+
     /// <summary>
-    /// Recibe un golpe. Si la vida llega a 0, el árbol se destruye.
+    /// Activa el brillo — llamado cuando el mouse entra al árbol.
     /// </summary>
+    public void SetHover(bool isHovered)
+    {
+        if (hoverMaterial == null) return;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (isHovered)
+            {
+                // Reemplazamos todos los materiales por el hover material
+                Material[] hoverMats = new Material[renderers[i].materials.Length];
+                for (int j = 0; j < hoverMats.Length; j++)
+                    hoverMats[j] = hoverMaterial;
+
+                renderers[i].materials = hoverMats;
+            }
+            else
+            {
+                // Restauramos los materiales originales
+                renderers[i].materials = originalMaterials[i];
+            }
+        }
+    }
+
+    // ─── Combate ──────────────────────────────────────────────────────────────
+
     public void TakeHit()
     {
         currentHealth--;
 
-        // Feedback visual: el árbol se sacude un poco
         StopAllCoroutines();
         StartCoroutine(ShakeEffect());
 
         if (currentHealth <= 0)
-        {
             Die();
-        }
     }
 
-    /// <summary>
-    /// Destruye el árbol y libera su celda en el grid.
-    /// </summary>
     private void Die()
     {
-        // Liberamos la celda para que otros sistemas sepan que está vacía
         if (occupiedCell != null)
             occupiedCell.occupant = null;
 
         Destroy(gameObject);
     }
 
-    /// <summary>
-    /// Pequeña animación de sacudida al recibir un golpe.
-    /// </summary>
     private System.Collections.IEnumerator ShakeEffect()
     {
         Vector3 originalPos = transform.localPosition;
@@ -73,7 +107,6 @@ public class Tree : MonoBehaviour
             float x = Random.Range(-magnitude, magnitude);
             float z = Random.Range(-magnitude, magnitude);
             transform.localPosition = originalPos + new Vector3(x, 0f, z);
-
             elapsed += Time.deltaTime;
             yield return null;
         }

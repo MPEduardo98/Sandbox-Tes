@@ -1,19 +1,16 @@
 using UnityEngine;
 
 /// <summary>
-/// Gestiona el clic del jugador sobre objetos interactuables del mundo.
-/// Este script va en el Player.
+/// Gestiona el hover y el clic del jugador sobre objetos interactuables.
 /// </summary>
 public class PlayerInteraction : MonoBehaviour
 {
     [Header("Configuración")]
-    [Tooltip("Distancia máxima desde la que puede interactuar con un árbol")]
     [SerializeField] private float interactionRange = 5f;
-
-    [Tooltip("Capas con las que puede interactuar (selecciona la layer de los árboles)")]
     [SerializeField] private LayerMask interactableLayer;
 
     private Camera mainCamera;
+    private Tree currentHoveredTree; // El árbol que tiene el hover activo ahora mismo
 
     void Awake()
     {
@@ -22,43 +19,58 @@ public class PlayerInteraction : MonoBehaviour
 
     void Update()
     {
-        // Detectamos clic izquierdo del mouse
+        HandleHover();
+
         if (Input.GetMouseButtonDown(0))
-        {
             TryInteract();
-        }
     }
 
-    private void TryInteract()
+    // ─── Hover ───────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Cada frame lanzamos un rayo desde el mouse.
+    /// Si apunta a un árbol dentro del rango → activamos hover.
+    /// Si apunta a otro lado → desactivamos hover del árbol anterior.
+    /// </summary>
+    private void HandleHover()
     {
-        // Lanzamos un rayo desde la cámara hacia donde hizo clic el mouse
         Ray ray = mainCamera.ScreenPointToRay(Input.mousePosition);
+        Tree detectedTree = null;
 
         if (Physics.Raycast(ray, out RaycastHit hit, 100f, interactableLayer))
         {
-            // ¿Está el objeto dentro del rango de interacción?
             float distance = Vector3.Distance(transform.position, hit.point);
 
             if (distance <= interactionRange)
             {
-                // ¿El objeto tiene el componente Tree?
-                Tree tree = hit.collider.GetComponentInParent<Tree>();
-                if (tree != null)
-                {
-                    tree.TakeHit();
-                }
+                detectedTree = hit.collider.GetComponentInParent<Tree>();
             }
-            else
-            {
-                Debug.Log("Árbol demasiado lejos — acércate más");
-            }
+        }
+
+        // Si el árbol detectado cambió, actualizamos el hover
+        if (detectedTree != currentHoveredTree)
+        {
+            // Apagamos el hover del árbol anterior
+            if (currentHoveredTree != null)
+                currentHoveredTree.SetHover(false);
+
+            // Encendemos el hover del árbol nuevo
+            currentHoveredTree = detectedTree;
+            if (currentHoveredTree != null)
+                currentHoveredTree.SetHover(true);
         }
     }
 
-    /// <summary>
-    /// Dibuja el rango de interacción en la vista Scene para depuración.
-    /// Solo visible en el editor, no en el juego final.
-    /// </summary>
+    // ─── Interacción ──────────────────────────────────────────────────────────
+
+    private void TryInteract()
+    {
+        if (currentHoveredTree != null)
+        {
+            currentHoveredTree.TakeHit();
+        }
+    }
+
     void OnDrawGizmosSelected()
     {
         Gizmos.color = Color.yellow;
